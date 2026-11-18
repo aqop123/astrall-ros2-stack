@@ -1,0 +1,12 @@
+lidar_udp_node:
+  ros__parameters:
+    bind_address: "0.0.0.0"
+    front_ip: "10.18.0.120"
+    rear_ip: "10.18.0.121"
+    front_msop_port: 6699
+    front_difop_port: 7788
+    front_imu_port: 6688
+    rear_msop_port: 6969
+    rear_difop_port: 7878
+    rear_imu_port: 6868
+    filter_source_ip: true

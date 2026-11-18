@@ -1,0 +1,31 @@
+============================================================ 
+
+Max Cross-correlation: IMU lag wtr Lidar : 0
+Total time delay (IMU wtr Lidar): -0.0113544 s
+Using LIO: SUBTRACT this value from IMU timestamp
+           or ADD this value to LiDAR timestamp.
+
+============================================================ 
+
+[Init Result] Rotation LiDAR to IMU    = 179.853327  80.833433  -4.342861 deg
+[Init Result] Translation LiDAR to IMU = -0.314206  0.092344 -0.125068 m
+[Init Result] Time Lag IMU to LiDAR    = -0.01135442 s 
+[Init Result] Bias of Gyroscope        =  0.025133 -0.007744 -0.009302 rad/s
+[Init Result] Bias of Accelerometer    = -0.008986 -0.009374 -0.011462 m/s^2
+[Init Result] Gravity in World Frame   =  9.718173 -0.111610  1.334447 m/s^2
+
+============================================================ 
+
+[Initialization] Lidar IMU initialization done.
+[TIMER] Batch optimization time consuming  572.108026 ms
+
+[Refinement] Switch to LIO mode, online refinement begins.
+[Refinement]  Online Refinement 100% [||||||||||||||||||||||||||||||]
+
+
+[Final Result] Rotation LiDAR to IMU    = -176.969456   80.692401   -0.279887 deg
+[Final Result] Translation LiDAR to IMU = -0.322625  0.109712 -0.142256 m
+[Final Result] Time Lag IMU to LiDAR    = -0.01135442 s 
+[Final Result] Bias of Gyroscope        =  0.001594 -0.001136  0.001006 rad/s
+[Final Result] Bias of Accelerometer    = -0.012003 -0.012369 -0.038353 m/s^2
+[Final Result] Gravity in World Frame   =  9.698201 -0.114924  1.330858 m/s^2

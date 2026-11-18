@@ -1,0 +1,56 @@
+# 双雷达拼接融合节点参数（docs/3d_robosense.md §4）
+# 注意: 外参数值为占位示例, 仓库中不存在真实外参,
+#       实际值必须按方案 §7 流程获取（Step1 卷尺粗测 + Step2 RViz 精调）
+dual_lidar_fusion_node:
+  ros__parameters:
+    front_lidar_topic: "/rslidar_points"        # 现网已验证话题
+    rear_lidar_topic: "/rslidar_rear_points"    # 现网已验证话题
+    output_topic: "/merged_points"              # 与 fastlio2 lio.yaml 的 lidar_topic 一致
+    output_frame_id: "imu_link"
+
+    sync_slop_sec: 0.03                 # 前后雷达帧间最大允许时间差; 上线前按实测相位差调整, 有效上限 <0.05s
+    rear_timeout_sec: 2.0               # 后雷达断流降级阈值（§3.3）
+    voxel_leaf_size: 0.10               # 降采样体素尺寸 (m)
+    output_qos_reliable: true           # 必须 RELIABLE（fastlio2 点云订阅为 RELIABLE, §3.2）
+
+    # 泰坦机身自遮挡裁剪盒 (单位 m, 相对于 imu_link)
+    # 机体系原点在质心; 本配置把 imu_link 原点取在 IMU 芯片处, 故由"相对质心"的机身盒
+    # 减去 IMU 位置 (0.127,-0.085,0.082) 得到: x[-0.777,0.523] y[-0.315,0.485] z[-0.682,0.218]
+    self_filter_box:
+      min_x: -0.777
+      max_x: 0.523
+      min_y: -0.315
+      max_y: 0.485
+      min_z: -0.682
+      max_z: 0.218
+
+    # ============ 雷达 -> imu_link 外参 ============
+    # 来源: 吠云-泰坦 SDK_1_0_5.md §4.5 "传感器外参"。表中坐标是"相对质心、在机体系下
+    # 的位置"(机体系: X 朝头/Y 朝左/Z 朝上, 单位 mm):
+    #   前雷达 (444, 0, -32)   后雷达 (-420, 0, 19)   IMU (127, -85, 82)
+    # ★ 这里的 IMU 是机身 SDK 的 IMU(AstrallImuData -> /imu/data), 不是雷达 6688/6868
+    #   端口的内置 IMU(本方案未启用)。fastlio 的 body 系 = /imu/data 的 imu_link。
+    # 代码变换为 p_imu = R(q) * p_lidar + t, 故 t 必须是"雷达原点在 imu_link 系中的位置":
+    #   t = p_lidar(机体系) - p_imu(机体系)
+    #   前: (0.444,0,-0.032)-(0.127,-0.085,0.082) = (0.317, 0.085,-0.114)
+    #   后: (-0.420,0,0.019)-(0.127,-0.085,0.082) = (-0.547, 0.085,-0.063)
+    #
+    # 旋转(按现场确认: 两台雷达都是侧躺安装, 即雷达原生 Z 轴绕机身 Y 轴转约 90°):
+    #   前雷达: 绕 Y +90°  -> [qx,qy,qz,qw] = [0, 0.707107, 0, 0.707107]
+    #   后雷达: 绕 Y +100° (用户:"比90度多一点"; 100°为暂定值, 确切角度请告知以修正)
+    #                     -> [0, 0.766044, 0, 0.642788]
+    # 说明:
+    #   - 若转完发现点云上下颠倒(地面跑到 z>0), 把 qy 取负号即可(绕 Y -90°/-100°)。
+    #   - 文档 §4.5 未给姿态; 4.12°/2.59° 是位置矢量仰角 atan(|z|/x), 非安装角。
+    #   - t 与旋转无关, 仍为"雷达原点在 imu_link 系的位置"= p_lidar - p_imu (见上)。
+    # 若你选择把 imu_link 原点放在质心(而非 IMU 芯片), 则 t 用文档原始值
+    # [0.444,0,-0.032] / [-0.420,0,0.019], 并相应还原上面的 self_filter_box。
+    extrinsic_front_to_imu:
+      translation: [0.317, 0.085, -0.114]  # (444-127, 0+85, -32-82) mm
+      quaternion: [0.0, 0.707107, 0.0, 0.707107]   # 绕 Y +90°(侧躺)
+
+    extrinsic_rear_to_imu:
+      translation: [-0.547, 0.085, -0.063] # (-420-127, 0+85, 19-82) mm
+      # quaternion: [0.0, 0.766044, 0.0, 0.642788]   # 绕 Y +100°(侧躺, 角度暂定)
+      quaternion: [-0.761880, 0.017119, 0.647178, 0.020154]
+

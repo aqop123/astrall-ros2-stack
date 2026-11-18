@@ -1,0 +1,135 @@
+y@y:~/astrall_ws$ ros2 launch rslidar_sdk start.py
+[INFO] [launch]: All log files can be found below /home/y/.ros/log/2026-11-18-11-28-37-929814-y-147563
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [rslidar_sdk_node-1]: process started with pid [147564]
+[INFO] [rviz2-2]: process started with pid [147566]
+[rslidar_sdk_node-1] ********************************************************
+[rslidar_sdk_node-1] **********                                    **********
+[rslidar_sdk_node-1] **********    RSLidar_SDK Version: v1.5.20     **********
+[rslidar_sdk_node-1] **********                                    **********
+[rslidar_sdk_node-1] ********************************************************
+[rviz2-2] Warning: Ignoring XDG_SESSION_TYPE=wayland on Gnome. Use QT_QPA_PLATFORM=wayland to run on Wayland anyway.
+[rslidar_sdk_node-1] --------------------------------------------------------
+[rslidar_sdk_node-1] Config loaded from PATH:
+[rslidar_sdk_node-1] /home/y/astrall_ws/src/rslidar_driverANDsdk/rslidar_sdk/config/config.yaml
+[rslidar_sdk_node-1] --------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] Receive Packets From : Online LiDAR
+[rslidar_sdk_node-1] Msop Port: 6699
+[rslidar_sdk_node-1] Difop Port: 7788
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Driver Parameters 
+[rslidar_sdk_node-1] input type: ONLINE_LIDAR
+[rslidar_sdk_node-1] lidar_type: RSAIRY
+[rslidar_sdk_node-1] frame_id: rslidar
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Input Parameters 
+[rslidar_sdk_node-1] msop_port: 6699
+[rslidar_sdk_node-1] difop_port: 7788
+[rslidar_sdk_node-1] imu_port: 0
+[rslidar_sdk_node-1] user_layer_bytes: 0
+[rslidar_sdk_node-1] tail_layer_bytes: 0
+[rslidar_sdk_node-1] host_address: 0.0.0.0
+[rslidar_sdk_node-1] group_address: 0.0.0.0
+[rslidar_sdk_node-1] socket_recv_buf: 106496
+[rslidar_sdk_node-1] pcap_path: /home/robosense/lidar.pcap
+[rslidar_sdk_node-1] pcap_rate: 1
+[rslidar_sdk_node-1] pcap_repeat: 1
+[rslidar_sdk_node-1] use_vlan: 0
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Decoder Parameters 
+[rslidar_sdk_node-1] min_distance: 0.4
+[rslidar_sdk_node-1] max_distance: 30
+[rslidar_sdk_node-1] use_lidar_clock: 0
+[rslidar_sdk_node-1] dense_points: 1
+[rslidar_sdk_node-1] ts_first_point: 1
+[rslidar_sdk_node-1] wait_for_difop: 1
+[rslidar_sdk_node-1] config_from_file: 0
+[rslidar_sdk_node-1] angle_path: 
+[rslidar_sdk_node-1] start_angle: 0
+[rslidar_sdk_node-1] end_angle: 360
+[rslidar_sdk_node-1] split_frame_mode: 1
+[rslidar_sdk_node-1] split_angle: 0
+[rslidar_sdk_node-1] num_blks_split: 0
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Transform Parameters 
+[rslidar_sdk_node-1] x: 0
+[rslidar_sdk_node-1] y: 0
+[rslidar_sdk_node-1] z: 0
+[rslidar_sdk_node-1] roll: 0
+[rslidar_sdk_node-1] pitch: 0
+[rslidar_sdk_node-1] yaw: 0
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] Original receive buffer size: 212992 bytes
+[rslidar_sdk_node-1] After setting: receive buffer size: 425984 bytes
+[rslidar_sdk_node-1] Original receive buffer size: 212992 bytes
+[rslidar_sdk_node-1] After setting: receive buffer size: 425984 bytes
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] Send PointCloud To : ROS
+[rslidar_sdk_node-1] PointCloud Topic: /rslidar_points
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] Receive Packets From : Online LiDAR
+[rslidar_sdk_node-1] Msop Port: 6969
+[rslidar_sdk_node-1] Difop Port: 7878
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Driver Parameters 
+[rslidar_sdk_node-1] input type: ONLINE_LIDAR
+[rslidar_sdk_node-1] lidar_type: RSAIRY
+[rslidar_sdk_node-1] frame_id: rslidar
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Input Parameters 
+[rslidar_sdk_node-1] msop_port: 6969
+[rslidar_sdk_node-1] difop_port: 7878
+[rslidar_sdk_node-1] imu_port: 0
+[rslidar_sdk_node-1] user_layer_bytes: 0
+[rslidar_sdk_node-1] tail_layer_bytes: 0
+[rslidar_sdk_node-1] host_address: 0.0.0.0
+[rslidar_sdk_node-1] group_address: 0.0.0.0
+[rslidar_sdk_node-1] socket_recv_buf: 106496
+[rslidar_sdk_node-1] pcap_path: 
+[rslidar_sdk_node-1] pcap_rate: 1
+[rslidar_sdk_node-1] pcap_repeat: 1
+[rslidar_sdk_node-1] use_vlan: 0
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Decoder Parameters 
+[rslidar_sdk_node-1] min_distance: 0.4
+[rslidar_sdk_node-1] max_distance: 30
+[rslidar_sdk_node-1] use_lidar_clock: 0
+[rslidar_sdk_node-1] dense_points: 1
+[rslidar_sdk_node-1] ts_first_point: 1
+[rslidar_sdk_node-1] wait_for_difop: 1
+[rslidar_sdk_node-1] config_from_file: 0
+[rslidar_sdk_node-1] angle_path: 
+[rslidar_sdk_node-1] start_angle: 0
+[rslidar_sdk_node-1] end_angle: 360
+[rslidar_sdk_node-1] split_frame_mode: 1
+[rslidar_sdk_node-1] split_angle: 0
+[rslidar_sdk_node-1] num_blks_split: 0
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1]              RoboSense Transform Parameters 
+[rslidar_sdk_node-1] x: 0
+[rslidar_sdk_node-1] y: 0
+[rslidar_sdk_node-1] z: 0
+[rslidar_sdk_node-1] roll: 0
+[rslidar_sdk_node-1] pitch: 0
+[rslidar_sdk_node-1] yaw: 0
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] Original receive buffer size: 212992 bytes
+[rslidar_sdk_node-1] After setting: receive buffer size: 425984 bytes
+[rslidar_sdk_node-1] Original receive buffer size: 212992 bytes
+[rslidar_sdk_node-1] After setting: receive buffer size: 425984 bytes
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] Send PointCloud To : ROS
+[rslidar_sdk_node-1] PointCloud Topic: /rslidar_rear_points
+[rslidar_sdk_node-1] ------------------------------------------------------
+[rslidar_sdk_node-1] RoboSense-LiDAR-Driver is running.....
+

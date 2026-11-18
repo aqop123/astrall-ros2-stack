@@ -1,0 +1,41 @@
+# 后雷达 (10.18.0.121, /rslidar_rear_points) + 机身 IMU (/imu/data) 的 LI-Init 配置
+# 启动: ros2 run lidar_imu_init li_init --ros-args --params-file <本文件>
+laser_mapping:
+  ros__parameters:
+    point_filter_num: 3
+    max_iteration: 5
+    cube_side_length: 2000.0
+
+    common:
+      lid_topic: "/rslidar_rear_points"
+      imu_topic: "/imu/data"
+
+    preprocess:
+      lidar_type: 7                # AIRY：RoboSense Airy + XYZIRT 绝对时间戳
+      scan_line: 96
+      blind: 0.3
+      feature_extract_en: false
+
+    initialization:
+      cut_frame_num: 3             # 把每帧雷达点云切成 3 个子帧，提高里程计频率
+      orig_odom_freq: 10           # 原始雷达出帧频率，单位 Hz。
+      mean_acc_norm: 9.805         # 机身 SDK IMU 为 m/s²（静止约 9.8）
+      online_refine_time: 20.0
+      data_accum_length: 500.0
+      Rot_LI_cov: [0.00005, 0.00005, 0.00005]
+      Trans_LI_cov: [0.0001, 0.0001, 0.0001]
+
+    mapping:
+      filter_size_surf: 0.15
+      filter_size_map: 0.3
+      gyr_cov: 50.0
+      acc_cov: 0.5
+      b_acc_cov: 0.0001
+      b_gyr_cov: 0.0001
+      det_range: 60.0
+
+    publish:
+      path_en: true
+      scan_publish_en: true
+      dense_publish_en: false
+      scan_bodyframe_pub_en: true
