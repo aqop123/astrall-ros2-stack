@@ -1,0 +1,13 @@
+astrall_sensor_node:
+  ros__parameters:
+    imu_frequency_hz: 250
+    sdk_init_timeout_ms: 60000
+    imu_frame_id: imu_link
+    odom_frame_id: odom
+    base_frame_id: base_link
+    camera_frame_id: camera_link
+    camera_enabled: true
+    camera_udp_port: 6000
+    camera_source_ip: ""
+    odom_xy_variance: 100.0
+    odom_yaw_variance: 100.0

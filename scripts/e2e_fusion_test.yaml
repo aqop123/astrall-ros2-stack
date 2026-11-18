@@ -1,0 +1,24 @@
+# 测试专用参数: 单位外参(便于断言), 其余与正式配置一致
+dual_lidar_fusion_node:
+  ros__parameters:
+    front_lidar_topic: "/rslidar_points"
+    rear_lidar_topic: "/rslidar_rear_points"
+    output_topic: "/merged_points"
+    output_frame_id: "imu_link"
+    sync_slop_sec: 0.03
+    rear_timeout_sec: 2.0
+    voxel_leaf_size: 0.10
+    output_qos_reliable: true
+    self_filter_box:
+      min_x: -0.65
+      max_x: 0.65
+      min_y: -0.40
+      max_y: 0.40
+      min_z: -0.60
+      max_z: 0.30
+    extrinsic_front_to_imu:
+      translation: [0.0, 0.0, 0.0]
+      quaternion: [0.0, 0.0, 0.0, 1.0]
+    extrinsic_rear_to_imu:
+      translation: [0.0, 0.0, 0.0]
+      quaternion: [0.0, 0.0, 0.0, 1.0]

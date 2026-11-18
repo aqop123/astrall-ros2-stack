@@ -1,0 +1,51 @@
+imu_topic: /imu/data
+lidar_topic: /merged_points
+body_frame: imu_link
+world_frame: odom
+print_time_cost: false
+
+# 双雷达融合节点发布的 PointCloud2 中单点时间字段(time/timestamp)的配置
+# 速腾(rslidar_sdk)驱动默认输出秒级绝对时间戳
+lidar_time_unit: sec        # 单点时间字段单位: sec / ms / us / ns
+lidar_time_absolute: true   # true: 绝对时间戳(内部换算为相对扫描起始的毫秒偏移); false: 已是相对偏移
+
+# IMU 加速度缩放系数: /imu/data 单位为 m/s²
+#   (astrall sdk interface.h: accelerometer "m/(s*s)"; astrall_sensor_node 原样透传)
+# 历史代码硬编码 *10.0 仅适用于 0.1 m/s² 单位的旧数据源, 对本数据源会使静止等效重力为
+# 98.1 m/s², IESKF 重力项失配 → 位置发散。若日后更换数据源, 按静止实测 |acc| 换算:
+#   scale = 9.81 / |acc_静止|   (实车复核: ros2 topic echo /imu/data --field linear_acceleration)
+imu_acc_scale: 1.0
+
+lidar_filter_num: 6
+lidar_min_range: 0.4
+lidar_max_range: 30.0
+scan_resolution: 0.15
+map_resolution: 0.3
+
+cube_len: 300
+det_range: 60
+move_thresh: 1.5
+
+na: 0.01
+ng: 0.01
+nba: 0.0001
+nbg: 0.0001
+
+imu_init_num: 20
+near_search_num: 5
+ieskf_max_iter: 5
+
+gravity_align: true
+esti_il: false
+
+r_il: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]   # 按构造恒为单位阵, 不是标定参数
+t_il: [0.0, 0.0, 0.0]                                 # 按构造取零 (现网旧值 [-0.011,-0.02329,0.04412] 是旧坐标约定残留)
+                                                      # r_il/t_il = "融合节点输出点云所在系 -> fastlio body 系"的变换。
+                                                      # ★ 即使 /imu/data 来自机身外置 IMU(SDK AstrallImuData, 非雷达内置
+                                                      #   IMU), 这里也保持不变: 融合节点已把点云从两台雷达各自坐标系
+                                                      #   变换到 imu_link(= /imu/data 的 frame_id, 即 fastlio body 系),
+                                                      #   两系重合, 故恒为单位阵/零向量。IMU 与雷达之间的外参全部在
+                                                      #   dual_lidar_fusion.yaml 的 extrinsic_*_to_imu 里消化, 不要
+                                                      #   把同一外参再填到这里(会二次变换)。标定流程见 docs §7。
+
+lidar_cov_inv: 1000.0
