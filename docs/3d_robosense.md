@@ -90,7 +90,9 @@ lidar:
       start_angle: 0
       end_angle: 360
     ros:
-      ros_frame_id: rslidar_rear
+      ros_frame_id: rslidar                           #  [改] 必须与 RViz Fixed Frame / 前雷达一致;
+                                                     #  若写 rslidar_rear, rslidar_sdk 不发 TF, RViz 会静默丢弃点云
+                                                     #  (话题可见但无点云). 融合节点按话题区分, 不受影响.
       ros_recv_packet_topic: /rslidar_rear_packets
       ros_send_packet_topic: /rslidar_rear_packets
       ros_send_imu_data_topic: /rslidar_rear_imu_data

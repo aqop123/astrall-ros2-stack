@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>astrall_bringup</name>
+  <version>0.1.0</version>
+  <description>One-shot bringup for ASTRALL dual-lidar/IMU fusion and FAST-LIO2 with centralized configuration.</description>
+  <maintainer email="maintainer@example.com">Astrall workspace maintainer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>rslidar_sdk</exec_depend>
+  <exec_depend>astrall_sensor_bridge</exec_depend>
+  <exec_depend>dual_lidar_fusion</exec_depend>
+  <exec_depend>fastlio2</exec_depend>
+  <exec_depend>pgo</exec_depend>
+  <exec_depend>localizer</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
