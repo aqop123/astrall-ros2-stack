@@ -1,7 +1,7 @@
 imu_topic: /imu/data
 lidar_topic: /merged_points
 body_frame: imu_link
-world_frame: odom
+world_frame: lio_odom
 print_time_cost: false
 
 # 双雷达融合节点发布的 PointCloud2 中单点时间字段(time/timestamp)的配置

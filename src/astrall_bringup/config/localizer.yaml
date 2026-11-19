@@ -1,7 +1,7 @@
 cloud_topic: /fastlio2/body_cloud
 odom_topic: /fastlio2/lio_odom
 map_frame: map
-local_frame: odom
+local_frame: lio_odom
 update_hz: 1.0
 
 rough_scan_resolution: 0.25
