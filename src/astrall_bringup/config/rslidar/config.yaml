@@ -18,9 +18,9 @@ lidar:
       tail_layer_bytes: 0          #  Bytes of tail layer. thers is no tail layer if it is 0
 
 
-      roll: 1.598859
-      pitch: 1.549667
-      yaw: 1.635447
+      # roll: 1.598859
+      # pitch: 1.549667
+      # yaw: 1.635447
 
       min_distance: 0.4            #  [改]（现网 0.2）硬件层过滤近处自遮挡, 与 fastlio2 lidar_min_range 一致
       max_distance: 30             #  [改]（现网 200）与 fastlio2 lidar_max_range 30 对齐, 减少上游无效点量
@@ -54,9 +54,9 @@ lidar:
       imu_port: 6868
       user_layer_bytes: 0
       tail_layer_bytes: 0
-      roll: -3.088700
-      pitch: 1.408348
-      yaw: -0.004885
+      # roll: -3.088700
+      # pitch: 1.408348
+      # yaw: -0.004885
 
 
       min_distance: 0.4                                #  [改]（现网 0.2）

@@ -22,7 +22,9 @@ extern "C" {
 #include <cerrno>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <future>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -146,8 +148,19 @@ class AstrallSensorNode : public rclcpp::Node {
       camera_socket_ = -1;
     }
     if (sdk_initialized_) {
-      AstrallSdkDeinit();
       sdk_initialized_ = false;
+      auto done = std::make_shared<std::promise<void>>();
+      auto finished = done->get_future();
+      std::thread([done] {
+        try {
+          AstrallSdkDeinit();
+        } catch (...) {
+        }
+        done->set_value();
+      }).detach();
+      if (finished.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+        RCLCPP_WARN(get_logger(), "AstrallSdkDeinit timed out; continuing shutdown");
+      }
     }
   }
 
@@ -337,8 +350,9 @@ int main(int argc, char **argv) {
   } catch (const std::exception &error) {
     RCLCPP_FATAL(rclcpp::get_logger("astrall_sensor_node"), "%s", error.what());
     rclcpp::shutdown();
-    return 1;
+    // SDK 的静态析构会等待未退出的内部线程，跳过它才能及时退出。
+    std::_Exit(1);
   }
   rclcpp::shutdown();
-  return 0;
+  std::_Exit(0);
 }

@@ -35,8 +35,8 @@ def generate_launch_description():
     # 1. 配置路径：全部集中在本包 config/ 下，命令行可覆盖
     # ------------------------------------------------------------------
     config_arguments = [
-        arg("rslidar_config_dir", config_path("rslidar"),
-            "rslidar_sdk 配置目录（其中包含 config.yaml）"),
+        arg("rslidar_config_dir", config_path("rslidar", "config.yaml"),
+            "rslidar_sdk 配置文件（config.yaml）路径"),
         arg("sensors_params", config_path("sensors.yaml"),
             "astrall_sensor_bridge 参数文件"),
         arg("fusion_params", config_path("dual_lidar_fusion.yaml"),
