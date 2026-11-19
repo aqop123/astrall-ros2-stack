@@ -29,6 +29,7 @@ find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(interface REQUIRED)
 
 find_package(OpenMP QUIET)
 find_package(PCL REQUIRED)
@@ -46,7 +47,8 @@ find_package(yaml-cpp REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
 
-set(SRC_LIST src/map_builder/commons.cpp
+set(SRC_LIST src/diagnostics.cpp
+             src/map_builder/commons.cpp
              src/map_builder/ieskf.cpp
              src/map_builder/imu_processor.cpp
              src/map_builder/ikd_Tree.cpp
@@ -55,7 +57,7 @@ set(SRC_LIST src/map_builder/commons.cpp
              src/utils.cpp)
 
 add_executable(lio_node src/lio_node.cpp ${SRC_LIST})
-ament_target_dependencies(lio_node rclcpp std_msgs tf2 tf2_ros nav_msgs sensor_msgs pcl_conversions geometry_msgs)
+ament_target_dependencies(lio_node rclcpp std_msgs tf2 tf2_ros nav_msgs sensor_msgs pcl_conversions geometry_msgs interface)
 target_include_directories(lio_node PRIVATE ${Sophus_INCLUDE_DIRS})
 target_link_libraries(lio_node
   yaml-cpp

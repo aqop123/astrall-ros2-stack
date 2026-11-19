@@ -1,5 +1,7 @@
 #include "lidar_processor.h"
 
+#include <chrono>
+
 LidarProcessor::LidarProcessor(Config &config, std::shared_ptr<IESKF> kf) : m_config(config), m_kf(kf)
 {
     m_ikdtree = std::make_shared<KD_TREE<PointType>>();
@@ -152,6 +154,7 @@ void LidarProcessor::initCloudMap(PointVec &point_vec)
 
 void LidarProcessor::process(SyncPackage &package)
 {
+    m_match_cost_accum_ms = 0.0; // 每帧清零，updateLossFunc 可能在一次 IESKF 更新中被多次调用
     // m_kf->setLossFunction([&](State &s, SharedState &d)
     //                       { updateLossFunc(s, d); });
     // m_kf->setStopFunction([&](const V21D &delta) -> bool
@@ -174,6 +177,7 @@ void LidarProcessor::process(SyncPackage &package)
 
 void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
 {
+    auto match_t1 = std::chrono::high_resolution_clock::now(); // 诊断计时，不参与算法
     int size = m_cloud_down_lidar->size();
 #ifdef MP_EN
     omp_set_num_threads(MP_PROC_NUM);
@@ -225,9 +229,12 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
         m_effect_norm_vec->points[effect_feat_num] = m_norm_vec->points[i];
         effect_feat_num++;
     }
+    m_last_matched_point_num = static_cast<size_t>(effect_feat_num);
     if (effect_feat_num < 1)
     {
         share_data.valid = false;
+        m_match_cost_accum_ms += std::chrono::duration<double, std::milli>(
+                                     std::chrono::high_resolution_clock::now() - match_t1).count();
         std::cerr << "NO Effective Points!" << std::endl;
         return;
     }
@@ -255,6 +262,8 @@ void LidarProcessor::updateLossFunc(State &state, SharedState &share_data)
         share_data.H += J.transpose() * m_config.lidar_cov_inv * J;
         share_data.b += J.transpose() * m_config.lidar_cov_inv * norm_p.intensity;
     }
+    m_match_cost_accum_ms += std::chrono::duration<double, std::milli>(
+                                 std::chrono::high_resolution_clock::now() - match_t1).count();
 }
 
 CloudType::Ptr LidarProcessor::transformCloud(CloudType::Ptr inp, const M3D &r, const V3D &t)

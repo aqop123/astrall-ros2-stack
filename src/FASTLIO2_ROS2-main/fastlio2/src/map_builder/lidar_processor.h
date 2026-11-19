@@ -31,6 +31,11 @@ public:
     M3D r_wl() { return m_kf->x().r_wi * m_kf->x().r_il; }
     V3D t_wl() { return m_kf->x().t_wi + m_kf->x().r_wi * m_kf->x().t_il; }
 
+    // 诊断只读接口（不改变算法状态、不改变 IESKF 数学模型）
+    size_t lastValidPointNum() const { return m_cloud_down_lidar ? m_cloud_down_lidar->size() : 0; }
+    size_t lastMatchedPointNum() const { return m_last_matched_point_num; }
+    double lastMatchCostMs() const { return m_match_cost_accum_ms; }
+
 private:
     Config m_config;
     LocalMap m_local_map;
@@ -45,4 +50,7 @@ private:
     CloudType::Ptr m_effect_norm_vec;
     std::vector<PointVec> m_nearest_points;
     pcl::VoxelGrid<PointType> m_scan_filter;
+
+    size_t m_last_matched_point_num = 0;
+    double m_match_cost_accum_ms = 0.0;
 };

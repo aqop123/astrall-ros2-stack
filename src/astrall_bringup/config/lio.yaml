@@ -49,3 +49,29 @@ t_il: [0.0, 0.0, 0.0]                                 # 按构造取零 (现网�
                                                       #   把同一外参再填到这里(会二次变换)。标定流程见 docs §7。
 
 lidar_cov_inv: 1000.0
+
+# =====================================================================
+# 诊断配置（全部可选，缺省时用代码内相同默认值；不影响建图算法）
+# 诊断信号只用于测试记录与告警，不自动判定定位失效。
+# 调阈值只需改本文件并重新 colcon build --packages-select astrall_bringup。
+# 话题：/fastlio2/lio_diagnostics（默认 2 Hz），可直接被 rosbag 录制。
+# =====================================================================
+diagnostics:
+  enable: true              # false 时不发布诊断话题，零统计开销
+  publish_hz: 2.0
+  warn_log_hz: 0.5
+  rate_window_sec: 5.0
+
+  # 静止判定：|角速度| < static_gyro_thresh 且 ||加速度|-9.81| < static_acc_thresh，持续 static_hold_sec
+  static_gyro_thresh: 0.05        # rad/s
+  static_acc_thresh: 0.15         # m/s^2
+  static_hold_sec: 0.5            # s
+
+  # 位姿稳定性阈值（相邻里程计）
+  pose_trans_thresh: 0.5          # m
+  pose_rot_thresh_deg: 10.0       # deg
+  # 静止期漂移阈值（从进入静止时刻起累计的最大漂移）
+  static_drift_trans_thresh: 0.05 # m
+  static_drift_rot_thresh_deg: 2.0    # deg
+  timestamp_rollback_tol: 0.001   # s
+  odom_timeout_sec: 2.0           # s

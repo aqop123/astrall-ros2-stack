@@ -1,13 +1,14 @@
-"""ASTRALL 感知栈一键启动（建图模式）。
+"""ASTRALL 感知栈一键启动（建图模式，含 PGO 回环）。
 
-数据流：雷达驱动 -> IMU 桥接 -> 双雷达融合 -> FAST-LIO2 -> PGO 回环 (+ RViz)
-
-定位模式请用 localizer.launch.py；两者不要同时运行，否则会重复启动 lio_node。
+设计数据流：雷达驱动 -> IMU 桥接 -> 双雷达融合 -> FAST-LIO2 -> PGO 回环 (+ RViz)。
+注意：当前 pgo_node 节点块被注释，实际只运行前端；取消注释后才启用回环。
+纯前端诊断测试请用 fastlio.launch.py；定位用 localizer.launch.py。
+三者不要同时运行，否则会重复启动 lio_node。
 
 改配置只需编辑本包的 config/ 目录，然后重新 colcon build 本包。
 每个配置路径都可通过 launch argument 临时覆盖，例如：
-    ros2 launch astrall_bringup bringup.launch.py pgo_config:=/tmp/pgo.yaml
-    ros2 launch astrall_bringup bringup.launch.py use_rviz:=false
+    ros2 launch astrall_bringup slam.launch.py pgo_config:=/tmp/pgo.yaml
+    ros2 launch astrall_bringup slam.launch.py use_rviz:=false
 """
 
 from launch import LaunchDescription
@@ -93,14 +94,14 @@ def generate_launch_description():
         parameters=[{"config_path": LaunchConfiguration("lio_config")}],
     )
 
-    pgo = Node(
-        package="pgo",
-        executable="pgo_node",
-        namespace="pgo",
-        name="pgo_node",
-        output="screen",
-        parameters=[{"config_path": LaunchConfiguration("pgo_config")}],
-    )
+    # pgo = Node(
+    #     package="pgo",
+    #     executable="pgo_node",
+    #     namespace="pgo",
+    #     name="pgo_node",
+    #     output="screen",
+    #     parameters=[{"config_path": LaunchConfiguration("pgo_config")}],
+    # )
 
     rviz = Node(
         package="rviz2",
@@ -118,6 +119,6 @@ def generate_launch_description():
         sensor_bridge,
         lidar_fusion,
         fastlio,
-        pgo,
+        # pgo,
         rviz,
     ])

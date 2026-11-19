@@ -4,6 +4,8 @@
 #include <memory>
 #include <iostream>
 #include <chrono>
+#include <algorithm>
+#include <type_traits>
 // #include <filesystem>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
@@ -11,6 +13,7 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include "utils.h"
+#include "diagnostics.h"
 #include "map_builder/commons.h"
 #include "map_builder/map_builder.h"
 
@@ -23,6 +26,38 @@
 #include <yaml-cpp/yaml.h>
 
 using namespace std::chrono_literals;
+
+namespace
+{
+// 诊断阈值容错读取：缺少 diagnostics 段或个别字段时使用代码内合理默认值
+DiagnosticsConfig loadDiagnosticsConfig(const YAML::Node &root)
+{
+    DiagnosticsConfig cfg;
+    if (!root || !root["diagnostics"])
+        return cfg;
+    const YAML::Node d = root["diagnostics"];
+    auto get = [&d](const char *key, auto &out)
+    {
+        if (d[key])
+            out = d[key].as<std::decay_t<decltype(out)>>();
+    };
+    get("enable", cfg.enable);
+    get("publish_hz", cfg.publish_hz);
+    get("warn_log_hz", cfg.warn_log_hz);
+    get("rate_window_sec", cfg.rate_window_sec);
+    get("static_gyro_thresh", cfg.static_gyro_thresh);
+    get("static_acc_thresh", cfg.static_acc_thresh);
+    get("static_hold_sec", cfg.static_hold_sec);
+    get("pose_trans_thresh", cfg.pose_trans_thresh);
+    get("pose_rot_thresh_deg", cfg.pose_rot_thresh_deg);
+    get("static_drift_trans_thresh", cfg.static_drift_trans_thresh);
+    get("static_drift_rot_thresh_deg", cfg.static_drift_rot_thresh_deg);
+    get("timestamp_rollback_tol", cfg.timestamp_rollback_tol);
+    get("odom_timeout_sec", cfg.odom_timeout_sec);
+    return cfg;
+}
+} // namespace
+
 struct NodeConfig
 {
     std::string imu_topic = "/livox/imu";
@@ -84,6 +119,21 @@ public:
         m_kf = std::make_shared<IESKF>();
         m_builder = std::make_shared<MapBuilder>(m_builder_config, m_kf);
         m_timer = this->create_wall_timer(20ms, std::bind(&LIONode::timerCB, this), m_timer_cb_group);
+
+        m_diagnostics = std::make_shared<LioDiagnostics>(m_diag_config);
+        m_warn_throttle_ms = static_cast<uint64_t>(std::max(1.0, 1000.0 / m_diag_config.warn_log_hz));
+        if (m_diag_config.enable)
+        {
+            m_diagnostics_pub = this->create_publisher<interface::msg::LioDiagnostics>("lio_diagnostics", 10);
+            auto period = std::chrono::duration<double>(std::max(0.1, 1.0 / m_diag_config.publish_hz));
+            // 与主 timerCB 同一 MutuallyExclusive 回调组：诊断数据无需加锁，且不增加主线程并发压力
+            m_diag_timer = this->create_wall_timer(period, std::bind(&LIONode::publishDiagnostics, this), m_timer_cb_group);
+            RCLCPP_INFO(this->get_logger(), "Diagnostics enabled: /fastlio2/lio_diagnostics @ %.1f Hz", m_diag_config.publish_hz);
+        }
+        else
+        {
+            RCLCPP_INFO(this->get_logger(), "Diagnostics disabled by config");
+        }
     }
 
     void loadParameters()
@@ -100,6 +150,8 @@ public:
         }
 
         RCLCPP_INFO(this->get_logger(), "LOAD FROM YAML CONFIG PATH: %s", config_path.c_str());
+
+        m_diag_config = loadDiagnosticsConfig(config);
 
         m_node_config.imu_topic = config["imu_topic"].as<std::string>();
         m_node_config.lidar_topic = config["lidar_topic"].as<std::string>();
@@ -163,6 +215,11 @@ public:
                                              V3D(msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z),
                                              timestamp);
         m_state_data.last_imu_time = timestamp;
+        if (m_diagnostics)
+        {
+            const IMUData &imu = m_state_data.imu_buffer.back();
+            m_diagnostics->onImu(imu.gyro.norm(), imu.acc.norm(), timestamp);
+        }
     }
     void lidarCB(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
     {
@@ -185,6 +242,8 @@ public:
         }
         m_state_data.lidar_buffer.emplace_back(timestamp, cloud);
         m_state_data.last_lidar_time = timestamp;
+        if (m_diagnostics)
+            m_diagnostics->onCloud();
     }
 
     bool syncPackage()
@@ -263,6 +322,11 @@ public:
         odom.twist.twist.linear.y = vel.y();
         odom.twist.twist.linear.z = vel.z();
         odom_pub->publish(odom);
+        if (m_diagnostics)
+        {
+            m_diagnostics->onOdom(time, this->now().seconds(), m_kf->x().t_wi,
+                                  Eigen::Quaterniond(m_kf->x().r_wi));
+        }
     }
 
     void publishPath(rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub, std::string frame_id, const double &time)
@@ -305,15 +369,28 @@ public:
     void timerCB()
     {
         if (!syncPackage())
+        {
+            if (m_diagnostics)
+                m_diagnostics->onSyncFailed();
             return;
+        }
         auto t1 = std::chrono::high_resolution_clock::now();
         m_builder->process(m_package);
         auto t2 = std::chrono::high_resolution_clock::now();
+        double cost_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
 
         if (m_node_config.print_time_cost)
         {
-            auto time_used = std::chrono::duration_cast<std::chrono::duration<double>>(t2 - t1).count() * 1000;
-            RCLCPP_WARN(this->get_logger(), "Time cost: %.2f ms", time_used);
+            RCLCPP_WARN(this->get_logger(), "Time cost: %.2f ms", cost_ms);
+        }
+
+        if (m_diagnostics)
+        {
+            auto lp = m_builder->lidar_processor();
+            m_diagnostics->onProcess(static_cast<uint8_t>(m_builder->status()), m_package.cloud_end_time,
+                                     this->now().seconds(), cost_ms, lp->lastMatchCostMs(),
+                                     static_cast<uint32_t>(lp->lastValidPointNum()),
+                                     static_cast<uint32_t>(lp->lastMatchedPointNum()));
         }
 
         if (m_builder->status() != BuilderStatus::MAPPING)
@@ -332,6 +409,32 @@ public:
         publishCloud(m_world_cloud_pub, world_cloud, m_node_config.world_frame, m_package.cloud_end_time);
 
         publishPath(m_path_pub, m_node_config.world_frame, m_package.cloud_end_time);
+    }
+
+    void publishDiagnostics()
+    {
+        if (!m_diagnostics_pub || !m_diagnostics)
+            return;
+        interface::msg::LioDiagnostics msg = m_diagnostics->report(this->now().seconds());
+        msg.header.stamp = this->now();
+        msg.header.frame_id = m_node_config.body_frame;
+        m_diagnostics_pub->publish(msg);
+
+        // 诊断信号只告警，不判定定位失效；节流避免刷屏
+        if (msg.pose_jump_warning)
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), m_warn_throttle_ms,
+                                 "pose jump: %.3f m / %.2f deg (diagnostic only)",
+                                 msg.pose_delta_trans, msg.pose_delta_rot_deg);
+        if (msg.static_drift_warning)
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), m_warn_throttle_ms,
+                                 "static drift: %.3f m / %.2f deg (diagnostic only)",
+                                 msg.static_drift_trans, msg.static_drift_rot_deg);
+        if (msg.pose_timestamp_rollback)
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), m_warn_throttle_ms,
+                                 "odom timestamp rollback detected (diagnostic only)");
+        if (msg.odom_timeout)
+            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), m_warn_throttle_ms,
+                                 "no odom for %.2f s (diagnostic only)", msg.odom_silence_sec);
     }
 
 private:
@@ -356,6 +459,12 @@ private:
     std::shared_ptr<IESKF> m_kf;
     std::shared_ptr<MapBuilder> m_builder;
     std::shared_ptr<tf2_ros::TransformBroadcaster> m_tf_broadcaster;
+
+    DiagnosticsConfig m_diag_config;
+    std::shared_ptr<LioDiagnostics> m_diagnostics;
+    rclcpp::Publisher<interface::msg::LioDiagnostics>::SharedPtr m_diagnostics_pub;
+    rclcpp::TimerBase::SharedPtr m_diag_timer;
+    uint64_t m_warn_throttle_ms = 2000;
 };
 
 int main(int argc, char **argv)

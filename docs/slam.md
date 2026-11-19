@@ -1,115 +1,385 @@
-# “吠云·泰坦”重载轮足机器人 SLAM 系统整体执行方案（低算力版）
+# SLAM 使用说明（`FASTLIO2_ROS2-main`）
 
-## 1. 任务背景与硬件约束
-- **目标平台**：吠云·泰坦（重载四轮足巡检机器人，自重约 75kg，负载 60kg+，变电站/园区室内外混合工况）。
-- **传感器配置**：双 3D 激光雷达（主雷达+补盲雷达）、双目相机（不进 SLAM 前端以节省算力，留作下游避障/识别）、IMU、轮足运动学里程计、室外 RTK-GPS。
-- **算力约束**：低功耗边缘工控机（CPU 算力受限，无强力独显），要求 SLAM 总 CPU 占用率控制在 **35%（单核等效 < 1.5 核）以内**，定位重复精度 **$< 5\text{cm}$**。
-- **核心架构**：`双雷达硬同步轻量拼接` + `FAST-LIO2`（核心里程计） + `SC-PGO / GTSAM`（建图后端融合 RTK/回环） + `FAST-LIO-Localization`（巡检低频重定位纠偏）。
+> 本文替换旧的“整体执行方案/规划”文档，以当前仓库里真实存在的代码为准。  
+> 目标包：`src/FASTLIO2_ROS2-main`（ROS 2 Humble）。
+
+**结论先说**：
+
+- 这个仓库包含 **LIO 前端、PGO 回环建图、ICP 重定位、HBA 一致性地图优化** 四个可用能力。
+- 上游必须提供 `/merged_points`（双雷达融合点云）和 `/imu/data`（机身 IMU）；**本包不负责双雷达融合**。
+- **建图用 `pgo_launch.py`，定位用 `localizer_launch.py`，二者互斥**；它们都会自动再启动一个 `lio_node`，不要再单独启动 `fastlio2`。
+- 当前包**没有** RTK/GPS 因子、Scan Context 描述子、自动粗定位、`slam_watchdog`；旧文档里这些描述已不适用。
 
 ---
 
-## 2. 系统目录结构规划
-Agent 需在 ROS 工作空间（默认按 ROS 2 Humble 编写，若为 ROS 1 Noetic 需做对应接口转换）下建立如下工程结构：
+## 1. 包结构与职责
 
 ```text
-titan_slam_ws/src/
-├── dual_lidar_fusion/          # [独立包] 双3D雷达时间同步、自遮挡裁剪与体素拼接节点（详见配套文档）
-├── FAST_LIO/                   # [核心包] 适配多线/混合激光雷达与轮足IMU调优的 FAST-LIO2
-├── SC-PGO/                     # [建图包] 后端位姿图优化（接入 RTK-GPS 因子与 Scan Context 回环）
-├── FAST_LIO_LOCALIZATION/      # [定位包] 加载先验 PCD 地图的低频全局重定位与漂移修正节点
-├── slam_watchdog/              # [安全包] 轮足里程计对比监控与极端退化兜底节点
-└── titan_slam_bringup/         # [启动包] 统一的参数文件 (config/) 与启动脚本 (launch/)
+src/FASTLIO2_ROS2-main/
+├── fastlio2/       # 激光惯性里程计：IESKF + ikd-Tree，输出 odom 与局部/全局点云
+├── pgo/            # 建图后端：位置先验 + ICP 回环，GTSAM ISAM2 位姿图优化，保存地图
+├── localizer/      # 定位：两阶段 ICP（粗 + 精），加载先验 PCD，输出 map→odom 修正
+├── hba/            # 离线一致性地图优化：读取 PGO 保存的 patches + poses，优化并可视化
+└── interface/      # 公共服务定义：SaveMaps / Relocalize / IsValid / RefineMap / SavePoses
 ```
 
----
-
-## 3. 核心算法选型与模块职责
-
-### 3.1 建图模式（Mapping Mode - 离线/建图阶段运行）
-1. **前端里程计 (`FAST-LIO2`)**：
-   - 订阅 `/lidar/merged_points` (`10Hz`) 和 `/imu/data` (`200Hz`)。
-   - 利用基于 `ikd-Tree` 的直接法面元配准与迭代误差状态卡尔曼滤波（ESIKF），输出高频里程计 `/Odometry` 与当前帧去畸变点云 `/cloud_registered`。
-2. **后端全局图优化 (`SC-PGO` / `GTSAM`)**：
-   - 订阅 `/Odometry`、`/cloud_registered` 与 `/gps/fix`。
-   - **RTK-GPS 融合策略（门控机制）**：实时检查 `NavSatFix.status.status` 与位置协方差矩阵 `position_covariance[0]`。**仅当** RTK 处于固定解（`Fixed`）且水平协方差 $< 0.03\text{m}^2$ 时，向 GTSAM 因子图添加 GPS 绝对位置因子；进入室内或变压器遮挡区（协方差跳变或降为浮点解）立即断开 GPS 因子，防止多路径效应拉歪地图。
-   - **闭环检测**：每移动 $1.5\text{m}$ 或旋转 $15^\circ$ 提取一帧关键帧并计算 `Scan Context` 描述子，检测到回环后执行 ICP 精配准并触发全局图优化，最终保存降采样后的全局地图 `global_map.pcd` 及关键帧描述子库。
-
-### 3.2 巡检定位模式（Localization Mode - 日常自主巡检运行）
-- **算力优化策略**：关闭 `SC-PGO` 建图后端与地图写入进程，系统进入纯定位模式。
-1. **初始化位姿获取**：
-   - **室外启动**：读取 RTK 固定解坐标 + 航向角，转换至地图坐标系作为初始猜测，局部 ICP 收敛。
-   - **室内启动**：利用当前帧点云生成 `Scan Context`，在先验描述子库中进行全局搜索粗定位，随后执行 GICP 精匹配（耗时 $< 2\text{s}$）。
-2. **高低频双线程融合定位**：
-   - **高频线程 (`100Hz`)**：`FAST-LIO2` 持续积分 IMU 与配准局部点云，直接向底层运控输出平滑无跳变的 `odom -> base_link` 变换。
-   - **低频纠偏线程 (`1Hz ~ 2Hz`)**：`FAST-LIO-Localization` 截取当前去畸变点云，与内存中常驻的先验地图（`0.2m` 体素降采样，总点数控制在 $30\text{w}$ 以内）进行 **FastGICP / NDT** 配准，计算出全局漂移修正变换 `map -> odom`，消除长距离巡检的累积误差。
-
-### 3.3 轮足里程计看门狗兜底 (`slam_watchdog`)
-- 订阅 `/Odometry`（SLAM 输出）与 `/legged_odom`（底盘运动学里程计）。
-- 计算滑动窗口（`0.5s`）内的线速度与角速度残差。若 SLAM 出现协方差发散或速度突变（如大雾、暴雨、强镜面反射导致激光退化），在 `100ms` 内切换发布 `/legged_odom` 作为临时位姿输出并上报 `SLAM_DEGRADED` 状态码请求底盘降速。
+| 包 | 节点 | 自带 launch | 作用 |
+|---|---|---|---|
+| `fastlio2` | `/fastlio2/lio_node` | `lio_launch.py` | 纯里程计 / 前端调试 |
+| `pgo` | `/pgo/pgo_node` | `pgo_launch.py` | **建图**：同时启动 lio + pgo + RViz |
+| `localizer` | `/localizer/localizer_node` | `localizer_launch.py` | **定位**：同时启动 lio + localizer + RViz |
+| `hba` | `/hba/hba` | `hba_launch.py` | **离线优化**：只启动 hba + RViz |
+| `interface` | 无 | 无 | 仅定义 srv |
 
 ---
 
-## 4. 低算力与重载轮足专属参数配置 (`titan_fastlio2.yaml`)
+## 2. 上游输入要求
 
-Agent 在配置 `FAST-LIO2` 参数文件时，必须严格应用以下针对低算力与轮足冲击的调优参数：
+### 2.1 必备话题
+
+| 话题 | 发布方 | 类型 | QoS | 说明 |
+|---|---|---|---|---|
+| `/merged_points` | `dual_lidar_fusion_node` | `sensor_msgs/PointCloud2` | RELIABLE | 双雷达融合后的点云 |
+| `/imu/data` | `astrall_sensor_node` | `sensor_msgs/Imu` | SensorDataQoS（best-effort） | 机身 SDK IMU，250Hz |
+
+`fastlio2` 的 IMU 订阅使用 `rclcpp::SensorDataQoS()`，点云订阅使用深度 10 的普通 RELIABLE QoS。**QoS 不匹配会直接收不到数据**。
+
+### 2.2 点云时间戳要求
+
+`/merged_points` 必须满足：
+
+- 含逐点时间字段 `time` 或 `timestamp`（代码优先找 `time`，其次 `timestamp`）；
+- 推荐 **FLOAT64 绝对秒**；
+- `lio.yaml` 中对应配置为：
 
 ```yaml
-common:
-  lid_topic: "/lidar/merged_points"
-  imu_topic: "/imu/data"
-  time_sync_en: false                 # 已在 dual_lidar_fusion 节点完成硬同步对齐，此处设为 false
-  time_offset_lidar_to_imu: 0.0       # 若标定出固定延迟则填入对应秒数
+lidar_time_unit: sec
+lidar_time_absolute: true
+```
 
-preprocess:
-  lidar_type: 1                       # 1: 自定义合并后的标准 PointXYZIRT 格式点云
-  scan_line: 32                       # 合并后的等效线束（按实际主雷达线束填写）
-  timestamp_unit: 3                   # 3: 纳秒 (ns) 或按驱动统一转换为秒/毫秒
-  blind: 0.8                          # 盲区过滤半径(m)，配合自遮挡包络彻底滤除泰坦机身与机械臂
+代码会先减去最早点时刻，再转换成相对扫描起始的毫秒偏移写入 `curvature`，供 FAST-LIO2 做逐点运动补偿。  
+如果时间字段是 **FLOAT32 且为绝对秒**，在 1.7e9 量级下精度只剩约 100 秒量级，去畸变失效；如果没有时间字段，会退化为不做逐点补偿。
 
-mapping:
-  acc_cov: 0.8                        # [关键] 重载轮足迈步触地冲击大，调大加速度计噪声协方差（默认0.1），抑制Z轴跳变
-  gyr_cov: 0.1                        # 陀螺仪测量噪声协方差
-  b_acc_cov: 0.0005                   # 加速度计零偏游走
-  b_gyr_cov: 0.0001                   # 陀螺仪零偏游走
-  fov_degree: 360                     # 双雷达拼接后实现水平 360 度全向视场
-  det_range: 50.0                     # [算力优化] 限制最大有效测距为 50m，丢弃远处稀疏噪点
-  extrinsic_est_en: false             # [算力优化] 离线标定好外参后关闭在线外参估计，节省矩阵求逆算力
-  extrinsic_T: [0.0, 0.0, 0.0]        # 合并点云已转换至 IMU 坐标系下，此处设为单位变换
-  extrinsic_R: [1.0, 0.0, 0.0,
-                0.0, 1.0, 0.0,
-                0.0, 0.0, 1.0]
+### 2.3 坐标系约定
 
-publish:
-  path_en: false                      # [算力优化] 巡检模式下关闭历史轨迹发布
-  scan_publish_en: true
-  dense_publish_en: false             # [算力优化] 仅发布降采样后的特征/体素点云，禁止发布稠密全量点云
-  scan_bodyframe_pub_en: false
+- 融节点已把点云变换到 `imu_link`；
+- `/imu/data` 的 `frame_id` 也是 `imu_link`；
+- 因此 `lio.yaml` 中：
 
-# 编译器与体素降采样核心参数（需同步修改 C++ 源码或 launch 参数）
-# point_filter_num: 3                 # 每 3 个点抽样 1 个进入前端
-# filter_size_surf: 0.25              # 当前帧表面点体素滤波尺寸 (m)
-# filter_size_map: 0.35               # ikd-Tree 全局局部地图体素尺寸 (m)
+```yaml
+r_il: [1,0,0, 0,1,0, 0,0,1]
+t_il: [0,0,0]
+```
+
+**必须保持单位阵/零向量**。IMU 与雷达的外参全部在 `dual_lidar_fusion.yaml` 的 `extrinsic_*_to_imu` 中消化，不能在这里再填一次，否则会二次变换。
+
+---
+
+## 3. 编译
+
+```bash
+cd /home/cersei/astrall_ws
+source /opt/ros/humble/setup.bash
+
+# 只编译 LIO
+colcon build --packages-up-to fastlio2 --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+# 编译建图 / 定位 / 离线优化
+colcon build --packages-up-to pgo localizer hba --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+source install/setup.bash
+```
+
+主要系统依赖：`pcl`、`eigen`、`gtsam`、`yaml-cpp`、`message_filters`、`tf2_ros` 等。  
+仓库自带 `fastlio2/third_party/sophus`，优先使用仓库版本；若系统 Sophus 与之冲突，按包内 README 处理。
+
+---
+
+## 4. 四种运行模式
+
+启动前先确认上游已经运行：
+
+```bash
+ros2 topic hz /merged_points
+ros2 topic hz /imu/data
+```
+
+### 4.1 纯 LIO：调试前端 / 标定
+
+```bash
+ros2 launch fastlio2 lio_launch.py
+```
+
+输出（均在 `/fastlio2` 命名空间下）：
+
+| 话题 | 说明 |
+|---|---|
+| `/fastlio2/lio_odom` | `nav_msgs/Odometry`，`header=odom`，`child=imu_link` |
+| `/fastlio2/body_cloud` | 机体坐标系点云，`frame=imu_link`，供 PGO / localizer 使用 |
+| `/fastlio2/world_cloud` | 世界坐标系点云，`frame=odom` |
+| `/fastlio2/lio_path` | 轨迹，`frame=odom` |
+
+广播 TF：`odom → imu_link`。
+
+适合用来检查：IMU 是否正常、点云是否正常、Z 轴是否漂移、`r_il/t_il` 是否为零。
+
+---
+
+### 4.2 PGO 建图：回环 + 保存地图
+
+```bash
+ros2 launch pgo pgo_launch.py
+```
+
+**注意：这个 launch 已经包含 `lio_node`，不要再单独启动 `fastlio2`。**
+
+额外输出：
+
+| 话题 / 服务 | 说明 |
+|---|---|
+| `/pgo/loop_markers` | 回环可视化 MarkerArray |
+| `/pgo/save_maps` | 保存地图服务 |
+
+广播 TF：`map → odom`，与 LIO 的 `odom → imu_link` 串成完整链路。
+
+保存地图：
+
+```bash
+mkdir -p /home/cersei/astrall_ws/maps/run01
+
+ros2 service call /pgo/save_maps interface/srv/SaveMaps \
+  "{file_path: '/home/cersei/astrall_ws/maps/run01', save_patches: true}"
+```
+
+生成物：
+
+```text
+maps/run01/
+├── map.pcd          # 全局地图
+├── poses.txt        # 关键帧位姿
+└── patches/0.pcd ...  # 逐关键帧子图，HBA 必需
+```
+
+**`save_patches` 建议始终为 `true`**：否则 `poses.txt` 为空、没有 `patches/`，后续 HBA 无法使用。
+
+回环算法是**位置先验近邻搜索 + ICP 子图匹配 + GTSAM ISAM2**，不是 Scan Context。关键参数在 `pgo.yaml`：
+
+```yaml
+key_pose_delta_deg: 10      # 每转 10° 取一个关键帧
+key_pose_delta_trans: 0.5   # 每移动 0.5m 取一个关键帧
+loop_search_radius: 1.0     # 近邻搜索半径
+loop_time_tresh: 60.0       # 时间间隔 >60s 才允许成为回环候选
+loop_score_tresh: 0.15      # ICP fitness 阈值
 ```
 
 ---
 
-## 5. Agent 分步执行清单 (Execution Checklist)
+### 4.3 Localizer 定位：加载先验地图 + 手动初值
 
-请执行 Agent 严格按以下顺序分阶段完成代码编写、编译与测试验证：
+```bash
+ros2 launch localizer localizer_launch.py
+```
 
-- **Step 1：环境与基础依赖检查**
-  - 检查并安装 `PCL (>=1.10)`、`Eigen3`、`GTSAM (>=4.1)`、`Sophus` 及 `livox_ros_driver2` / 对应 3D 雷达驱动。
-  - 确认工控机已开启 `chrony` 或 `ptp4l` 时间同步服务，确保双雷达与主机时钟偏差 $< 1\text{ms}$。
-- **Step 2：开发并验证双雷达融合模块 (`dual_lidar_fusion`)**
-  - 参照配套文档《双 3D 激光雷达时间同步、去畸变与轻量级拼接融合节点开发规范》实现 C++ 节点。
-  - **验收标准**：单核 CPU 占用 $< 8\%$，输出话题 `/lidar/merged_points` 稳定 `10Hz`，RViz 中观察墙面、地面无重影，机器人本体及机械臂点云已完全剔除。
-- **Step 3：部署与标定调优 `FAST-LIO2`**
-  - 拉取 `FAST-LIO2` 源码，修改点云输入解析接口以兼容 `/lidar/merged_points`（支持 `PointXYZIRT` 带逐点时间戳格式）。
-  - 写入第 4 节的 `titan_fastlio2.yaml` 参数配置，编译（开启 `-O3 -march=native` 编译优化）。
-  - **验收标准**：让机器人在平坦路面跑动并切换步态迈步越障，`FAST-LIO2` 节点单核 CPU 占用 $< 30\%$，里程计输出无发散、无 Z 轴剧烈跳变。
-- **Step 4：集成 `SC-PGO` 建图后端与 RTK-GPS 门控**
-  - 接入 `SC-PGO`，编写 GPS 协方差门控回调逻辑，确保仅在 RTK `Fixed` 解时插入 GPS 因子。
-  - **验收标准**：完成一次室内外混合闭环建图（室外绕行 + 进入室内走廊折返），导出 `global_map.pcd`，闭环起点与终点重合误差 $< 5\text{cm}$。
-- **Step 5：集成 `FAST-LIO-Localization` 与 `slam_watchdog`**
-  - 配置重定位节点加载 `global_map.pcd`（体素降采样至 `0.2m`），实现基于 `Scan Context` 的自动初始重定位与 `1Hz` FastGICP 漂移修正。
-  - 启动 `slam_watchdog` 监控进程，完成全流程联合压测，记录整体 CPU 占用率与关键巡检点位重复停靠精度（目标 $< 5\text{cm}$）。
+**同样已经包含 `lio_node`，且与 PGO 互斥**：两者都广播 `map → odom`，同时运行会造成 TF 冲突。
+
+调用重定位：
+
+```bash
+ros2 service call /localizer/relocalize interface/srv/Relocalize \
+  "{pcd_path: '/home/cersei/astrall_ws/maps/run01/map.pcd', x: 0.0, y: 0.0, z: 0.0, yaw: 0.0, pitch: 0.0, roll: 0.0}"
+```
+
+- 位姿单位为 **米 / 弧度**；
+- 初值是机器人在 **map 系**下的估计位姿；
+- 当前包**不会自动全局粗定位**，必须给一个合理初值，否则两阶段 ICP 可能收敛到错误位置。
+
+检查结果：
+
+```bash
+ros2 service call /localizer/relocalize_check interface/srv/IsValid "{code: 0}"
+```
+
+`code: 0` 返回真实 `localize_success`；`code: 1` 在代码里恒返回 `valid=true`，不要用它判断成功。
+
+输出：
+
+| 话题 | 说明 |
+|---|---|
+| `/localizer/map_cloud` | 对齐后的地图点云，可视化用 |
+| TF `map → odom` | 低频漂移修正，默认 `update_hz: 1.0` |
+
+`localizer.yaml` 里 `local_frame: lidar` 会在收到第一帧 odom 后被代码改写成 odom 的 `header.frame_id`，实际广播的是 `map → odom`。
+
+两阶段 ICP 参数：
+
+```yaml
+rough_scan_resolution: 0.25
+rough_map_resolution: 0.25
+rough_max_iteration: 5
+rough_score_thresh: 0.2
+
+refine_scan_resolution: 0.1
+refine_map_resolution: 0.1
+refine_max_iteration: 10
+refine_score_thresh: 0.1
+```
+
+---
+
+### 4.4 HBA 一致性地图优化：离线后处理
+
+前提：已经用 PGO 保存过 `patches/` + `poses.txt`（即 `save_patches: true`）。
+
+```bash
+ros2 launch hba hba_launch.py
+
+ros2 service call /hba/refine_map interface/srv/RefineMap \
+  "{maps_path: '/home/cersei/astrall_ws/maps/run01'}"
+```
+
+优化过程会在 `/hba/map_points` 上按迭代发布地图点云（`frame=map`），可在 RViz 中观察。
+
+导出优化后位姿：
+
+```bash
+ros2 service call /hba/save_poses interface/srv/SavePoses \
+  "{file_path: '/home/cersei/astrall_ws/maps/run01/poses_refined.txt'}"
+```
+
+注意：
+
+- HBA 是**离线服务式**节点，不订阅在线雷达/IMU，也不广播 TF；
+- 当前 `hba_node.cpp` **不会自动保存优化后的 PCD**，只发布到 `/hba/map_points` 并可通过 `save_poses` 导出位姿；
+- 仓库里的 `hba_node copy.cpp` 有硬编码保存 PCD 的代码，但**未参与编译**，不要依赖它。
+
+---
+
+## 5. 模式互斥关系
+
+| 同时启动 | 是否允许 | 原因 |
+|---|---|---|
+| `lio_launch.py` + `pgo_launch.py` | 否 | PGO launch 已含 lio，会重复发布话题/TF |
+| `lio_launch.py` + `localizer_launch.py` | 否 | 同上 |
+| `pgo_launch.py` + `localizer_launch.py` | **否** | 两者都广播 `map → odom` |
+| `hba_launch.py` + 任意在线模式 | 可以，但无必要 | HBA 离线运行，不占用在线话题/TF |
+
+---
+
+## 6. 配置文件说明
+
+各 launch 通过 `config_path` 参数传入 yaml，C++ 端用 yaml-cpp 读取。
+
+| 文件 | 被谁加载 | 作用 |
+|---|---|---|
+| `fastlio2/config/lio.yaml` | `lio_node` | LIO 前端核心参数 |
+| `pgo/config/pgo.yaml` | `pgo_node` | 关键帧、回环、位姿图参数 |
+| `localizer/config/localizer.yaml` | `localizer_node` | ICP 重定位参数 |
+| `hba/config/hba.yaml` | `hba_node` | 一致性优化参数 |
+
+### `lio.yaml` 关键参数
+
+```yaml
+imu_topic: /imu/data
+lidar_topic: /merged_points
+body_frame: imu_link
+world_frame: odom
+
+lidar_time_unit: sec
+lidar_time_absolute: true
+imu_acc_scale: 1.0
+
+lidar_filter_num: 6
+lidar_min_range: 0.4
+lidar_max_range: 30.0
+scan_resolution: 0.15
+map_resolution: 0.3
+
+na: 0.01
+ng: 0.01
+nba: 0.0001
+nbg: 0.0001
+lidar_cov_inv: 1000.0
+
+imu_init_num: 20
+near_search_num: 5
+ieskf_max_iter: 5
+gravity_align: true
+esti_il: false
+```
+
+重点说明：
+
+- `imu_acc_scale: 1.0`：机身 SDK IMU 加速度单位是 m/s²；旧代码硬编码 `*10.0` 会让静止重力变成 98.1 m/s²，导致发散。换 IMU 数据源时按 `scale = 9.81 / |a_static|` 重新计算。
+- `lidar_filter_num: 6`：每 6 个点取 1 个进前端，低算力调优项。
+- `lidar_min_range: 0.4`：与 `rslidar_sdk` 的 `min_distance: 0.4` 保持一致，先做硬件层近处滤除。
+- `r_il/t_il` 保持单位阵/零向量，理由见 §2.3。
+
+### `pgo.yaml` / `localizer.yaml` / `hba.yaml`
+
+见 §4.2 / §4.3 / §4.4 的对应片段。若仍通过 `astrall_bringup` 统一启动，以 bringup 中集中管理的 config 为准，改完需要重新 `colcon build --packages-select astrall_bringup`。
+
+---
+
+## 7. 标准作业流程
+
+### A. 建图
+
+1. 启动雷达驱动、`astrall_sensor_node`、`dual_lidar_fusion_node`，确认 `/merged_points` 与 `/imu/data` 正常。
+2. `ros2 launch pgo pgo_launch.py`
+3. 检查 TF：`map → odom → imu_link`。
+4. 机器人走一遍待建区域，尽量形成闭环；观察 `/pgo/loop_markers`。
+5. `mkdir -p <map_dir>` 后调用 `/pgo/save_maps`，`save_patches: true`。
+6. 用 RViz 打开 `map.pcd`，检查重影、地面拖尾、闭环误差。
+
+### B. 定位
+
+1. 启动同样的上游传感器与融合节点。
+2. `ros2 launch localizer localizer_launch.py`
+3. 调用 `/localizer/relocalize` 并提供 `map.pcd` 与合理初值。
+4. 用 `/localizer/relocalize_check`（`code: 0`）确认收敛。
+5. 观察 `/localizer/map_cloud` 与 TF `map → odom` 是否稳定。
+
+### C. 离线优化
+
+1. 使用 A 中保存的目录，确认存在 `patches/` 与 `poses.txt`。
+2. `ros2 launch hba hba_launch.py`
+3. 调用 `/hba/refine_map`，观察 `/hba/map_points`。
+4. 调用 `/hba/save_poses` 导出优化位姿。
+
+---
+
+## 8. 验收与排错
+
+```bash
+ros2 topic hz /merged_points
+ros2 topic hz /imu/data
+ros2 topic echo /imu/data --field linear_acceleration --once
+ros2 topic echo /fastlio2/lio_odom --field header.frame_id --once
+ros2 run tf2_tools view_frames
+```
+
+| 现象 | 优先检查 |
+|---|---|
+| `/imu/data` 有发布但 LIO 无数据 | IMU 订阅是 SensorDataQoS；发布端必须是 best-effort 兼容配置 |
+| LIO 收不到点云 | `/merged_points` 是否为 RELIABLE；是否有 `time`/`timestamp` 字段 |
+| 静止时 Z 轴发散 | `imu_acc_scale`；用 `ros2 topic echo` 测静止 `|acc|` 是否约 9.81 |
+| 点云无去畸变 | 时间字段是否 FLOAT32 绝对秒 / 是否缺失 |
+| 没有 `map → odom` | PGO 或 localizer 是否运行；是否被重复 launch 造成冲突 |
+| 出现两个 `lio_node` | 检查是否重复启动 launch；PGO/localizer 自带 lio |
+| `/pgo/save_maps` 失败 | `file_path` 目录必须已存在；是否有关键帧（`NO POSES!`） |
+| HBA 报 `patches not exists` | 保存地图时 `save_patches` 必须为 `true` |
+| 重定位失败 | 初值是否合理；`pcd_path` 是否存在；用 `code: 0` 查真实状态 |
+
+---
+
+## 9. 与旧规划文档的差异
+
+旧 `slam.md` 是方案规划，当前实现已经收敛为以下事实：
+
+- **没有** RTK/GPS 因子与协方差门控；
+- **没有** Scan Context 描述子，PGO 回环是“位置先验 + ICP”；
+- **没有** 自动全局重定位，localizer 需要手动给初值；
+- **没有** `slam_watchdog` / 轮足里程计兜底；
+- `titan_fastlio2.yaml` / `timestamp_unit: 3` 等旧参数名已不存在，以当前 `lio.yaml` 为准。
+
+新增这些能力时应另开功能包或修改本包源码，不要假设它们已经存在。
