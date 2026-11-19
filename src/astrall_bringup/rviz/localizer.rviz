@@ -124,14 +124,14 @@ Visualization Manager:
       Length: 1
       Name: Axes
       Radius: 0.10000000149011612
-      Reference Frame: map
+      Reference Frame: odom
       Value: true
     - Class: rviz_default_plugins/Axes
       Enabled: true
       Length: 0.5
       Name: Axes
       Radius: 0.05000000074505806
-      Reference Frame: body
+      Reference Frame: imu_link
       Value: true
   Enabled: true
   Global Options:

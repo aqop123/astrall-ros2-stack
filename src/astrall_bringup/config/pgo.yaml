@@ -4,10 +4,10 @@ map_frame: map
 local_frame: odom
 
 key_pose_delta_deg: 10
-key_pose_delta_trans: 0.5
-loop_search_radius: 1.0
-loop_time_tresh: 60.0
-loop_score_tresh: 0.15
+key_pose_delta_trans: 0.5   # 关键帧距离阈值
+loop_search_radius: 1.0     # 闭环检测半径阈值
+loop_time_tresh: 60.0       # 回环时间间隔限制
+loop_score_tresh: 0.15      # 闭环检测得分阈值
 loop_submap_half_range: 5
-submap_resolution: 0.1
+submap_resolution: 0.1      # 局部子地图体素分辨率
 min_loop_detect_duration: 5.0
